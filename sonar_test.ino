@@ -1,7 +1,10 @@
 #include <NewPing.h>
 #include <MIDI.h>
 #include <math.h>
-#include <Line.h>
+#include <LowPassFilter.h>
+
+#define 	MIDI_PITCHBEND_MIN   -8192
+#define 	MIDI_PITCHBEND_MAX   8191
 
 #define TRIGGER_PIN 7
 #define ECHO_PIN 8
@@ -19,13 +22,15 @@ int last_sonar_ping = 0;
 int last_sonar_pings[PING_MEDIAN];
 int i = 0;
 char loop_number = 0;
-Line<int> interpolation;
+LowPassFilter lowpass;
 
 void setup() {
-    Serial.begin(9600);
+    //Serial.begin(9600);
     pinMode(LED_PIN, OUTPUT);
     
-    // MIDI.begin();
+    MIDI.begin();
+    lowpass.setResonance(0);
+    lowpass.setCutoffFreq(13);
     
     // Initalises last_pings to zero
     for(i=0; i<PING_MEDIAN; i++) {
@@ -50,7 +55,8 @@ int midi_note_round(int frequency) {
  * @param frequency The frequency (in Hz) to parse
  */
 int midi_pitch_round(int frequency) {
-    return floor((71 + 12 * log((frequency/440.0))/log(2) - floor(69 + 12 * log((frequency/440.0))/log(2))) * 32);
+    return map(floor((71 + 12 * log((frequency/440.0))/log(2) - floor(69 + 12 * log((frequency/440.0))/log(2))) * 32),
+                0, 127, MIDI_PITCHBEND_MIN, MIDI_PITCHBEND_MAX);
 }
 
 /**
@@ -64,7 +70,7 @@ int scale_round(int note, int start = 0) {
     int closest_note = -1;
     int octave = 0;
     
-    int notes[] = {0, 2, 4, 6, 8, 10};
+    int notes[] = {0, 2, 3, 5, 7, 8, 10};
     int number_of_notes = 6;
     
     note -= start;
@@ -85,7 +91,7 @@ int scale_round(int note, int start = 0) {
  * @return the median ping of the last readings
  */
 int read_sonar_ping() {
-    int sonar_ping = sonar.ping_median(2);
+    int sonar_ping = sonar.ping();
     int ping_max = 0, ping_min = 0;
     
     if(sonar_ping > 0 && sonar_ping < MAX_SONAR_PING) {
@@ -128,7 +134,7 @@ void loop() {
     
     // Serial.println(sonar.ping());
     
-    int ping_median = read_sonar_ping();
+    int ping_median = sonar.ping(); //read_sonar_ping();
     
     /*
     loop_number = loop_number == STEPS ? 0 : loop_number;
@@ -140,60 +146,31 @@ void loop() {
     }
     
     ping_median = interpolation.next();*/
-    
     if(ping_median) {
-        int ping_freq = map(ping_median, 0, 4000, 1000, 220);
+        
+        ping_median = lowpass.next(ping_median);
+        
+        int ping_freq = map(ping_median, 0, 4000, 880, 220);
         
         int ping_midi = midi_note_round(ping_freq);
         int ping_pitch = midi_pitch_round(ping_freq);
         
-        if(ping_midi != last_midi_note && ping_pitch != last_midi_pitch) {
-
-            // MIDI.sendPitchBend(ping_pitch, 1);
+        // Reads arbitrary pitch from a potentiometer
+        //int ping_pitch = map(analogRead(5), 0, 1023, MIDI_PITCHBEND_MIN, MIDI_PITCHBEND_MAX);
+        
+        if(ping_midi != last_midi_note) {
             MIDI.sendNoteOn(ping_midi, 100, 1);
             MIDI.sendNoteOff(last_midi_note, 0, 1);   // Stop the last note
             
             last_midi_note = ping_midi;
+        }
+        
+        if(ping_pitch != last_midi_pitch) {
+            MIDI.sendPitchBend(ping_pitch, 1);
+            
             last_midi_pitch = ping_pitch;
         }
     }
     
     //loop_number++;
 }
-
-/*
-if(sonar_ping) {
-    sonar_ping /= 10;
-    if(last_sonar_ping + SONAR_UNCERTAINCY < sonar_ping || last_sonar_ping - SONAR_UNCERTAINCY > sonar_ping) {
-        /*Serial.print(sonar_ping);
-        Serial.print(" -> ");
-        Serial.println(map(sonar_ping, 0, 429, 120, 80));
-        
-        int ping_midi = note_round(map(sonar_ping, 0, 429, 80, 40));
-        if(ping_midi != last_midi_note) {
-            MIDI.sendNoteOn(ping_midi, 100, 1);
-            MIDI.sendNoteOff(last_midi_note, 0, 1);   // Stop the note
-            last_midi_note = ping_midi;
-        }
-    }
-    
-    last_sonar_ping = sonar_ping;
-}
-/*
-if(abs(sonar_ping - last_sonar_ping) > SONAR_UNCERTAINCY) {
-    last_sonar_ping = sonar_ping;
-    if (sonar_ping > 0 && sonar_ping < 2500) {
-        
-        int ping_midi = note_round(map(sonar_ping, 0, 2500, 96, 80));
-        if(ping_midi != last_midi_note) {
-            MIDI.sendNoteOn(ping_midi, 100, 1);
-            MIDI.sendNoteOff(last_midi_note, 0, 1);   // Stop the note
-            last_midi_note = ping_midi;
-        }
-        
-        int ping = map(sonar_ping, 0, 2500, 0, 255);
-
-        ping = 255 - ping;
-        analogWrite(LED_PIN, ping);
-    }
-}*/
