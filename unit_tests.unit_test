@@ -1,0 +1,22 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+int midi_pitch_round(int frequency) {
+    return floor((71 + 12 * log((frequency/440.0))/log(2) - floor(69 + 12 * log((frequency/440.0))/log(2))) * 32);
+}
+
+int midi_note_round(int frequency) {
+    return 69 + 12*log(frequency/440.0)/log(2);
+}
+
+
+int main() {
+    int i;
+    
+    for(i=0; i<20000; i += 10) {
+        printf("Freq : %li// Note : %li// Pitch : %li\n", i, midi_note_round(i), midi_pitch_round(i));
+    }
+    
+    return EXIT_SUCCESS;
+}
